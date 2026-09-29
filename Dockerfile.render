@@ -33,4 +33,4 @@ RUN mkdir -p /var/audittrail/work
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn audittrail.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "ulimit -Hs 16384 && alembic upgrade head && uvicorn audittrail.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

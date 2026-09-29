@@ -67,7 +67,15 @@ try:
     db.refresh(scan)
     assert scan.status == ScanStatus.COMPLETED, scan.error_message
     assert len(scan.findings) >= 1, "expected at least one finding from vulnerable fixture"
-    print(f"OK: scan completed with {len(scan.findings)} findings")
+    semgrep_findings = [f for f in scan.findings if f.scanner == "semgrep"]
+    assert len(semgrep_findings) >= 1, (
+        "expected semgrep findings under production subprocess rlimits "
+        "(768 MiB RLIMIT_AS + 16 MiB RLIMIT_STACK); semgrep may have crashed"
+    )
+    print(
+        f"OK: scan completed with {len(scan.findings)} findings "
+        f"({len(semgrep_findings)} from semgrep)"
+    )
 finally:
     db.close()
 PY
