@@ -71,7 +71,8 @@ if [[ -z "$API_KEY" ]]; then
 fi
 
 echo "Packaging vulnerable sample..."
-sample_zip="$(mktemp -t vulnerable-sample.XXXXXX.zip)"
+sample_zip="/tmp/vulnerable-sample-$$.zip"
+rm -f "$sample_zip"
 (
   cd "$ROOT/fixtures"
   zip -qr "$sample_zip" vulnerable-sample
