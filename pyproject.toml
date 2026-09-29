@@ -21,6 +21,9 @@ dependencies = [
     "docker>=7.1.0",
 ]
 
+[project.scripts]
+audittrail = "audittrail.cli:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=8.3.0",

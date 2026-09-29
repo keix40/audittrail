@@ -15,6 +15,7 @@ from audittrail.models.report import Report
 from audittrail.models.scan import Scan, ScanStatus
 from audittrail.scanners.docker_runner import MockScannerRunner, ScannerRunner
 from audittrail.schemas.finding import NormalizedFinding
+from audittrail.services.diff_scope import FileDiff, filter_findings_to_diff
 from audittrail.services.llm_summary import generate_summary
 from audittrail.services.normalize import merge_scanner_results
 from audittrail.services.report import compute_pass_fail, counts_json
@@ -44,6 +45,7 @@ def run_scan_pipeline(
     runner: ScannerRunner | None = None,
     *,
     post_github: bool = False,
+    diff_scope: tuple[FileDiff, ...] | None = None,
 ) -> None:
     scan = db.get(Scan, scan_id)
     if scan is None:
@@ -56,6 +58,14 @@ def run_scan_pipeline(
         scanner_runner = runner or MockScannerRunner()
         raw_results = scanner_runner.run_all(workspace)
         findings = merge_scanner_results(raw_results)
+        if diff_scope is not None:
+            findings = filter_findings_to_diff(findings, diff_scope)
+            scan.metadata_json = {
+                **scan.metadata_json,
+                "diff_scoped": True,
+                "diff_file_count": len(diff_scope),
+                "reported_finding_count": len(findings),
+            }
 
         for f in findings:
             db.add(

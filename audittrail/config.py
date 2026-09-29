@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     github_api_base: str = "https://api.github.com"
 
     api_key_pepper: str = "change-me-in-production"
+    bootstrap_admin_token: str = ""
     rate_limit_per_minute: int = 60
 
     scanner_docker_image: str = "audittrail-scanner:local"

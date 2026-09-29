@@ -42,6 +42,7 @@ flowchart LR
 |--------|----------------|
 | Webhook authenticity | HMAC SHA-256 (`X-Hub-Signature-256`) |
 | REST access | Hashed API keys (`X-API-Key` or `Authorization: Bearer`) |
+| Admin bootstrap | `BOOTSTRAP_ADMIN_TOKEN` required for `/v1/admin/*` (constant-time compare via `X-Admin-Token` or Bearer) |
 | Abuse prevention | Redis sliding-window rate limits per API key |
 | Scanner isolation | One ephemeral container per tool; read-only workspace mount; `network_disabled` by default; memory/CPU limits; container removed after run |
 | Secrets | No secrets in repo; configure via environment (see `.env.example`) |
@@ -78,10 +79,17 @@ Services:
 | Postgres | `localhost:5432` |
 | Redis | `localhost:6379` |
 
-Create an API key (bootstrap endpoint — restrict in production):
+Create an API key (requires bootstrap admin token in `.env`):
 
 ```bash
-curl -X POST "http://localhost:8000/v1/admin/api-keys?name=local-dev"
+curl -X POST "http://localhost:8000/v1/admin/api-keys?name=local-dev" \
+  -H "X-Admin-Token: $BOOTSTRAP_ADMIN_TOKEN"
+```
+
+Or use the operator CLI (database access only, no HTTP admin token):
+
+```bash
+audittrail create-api-key --name local-dev
 ```
 
 Scan the bundled vulnerable fixture via upload (zip the sample first):
@@ -134,7 +142,9 @@ pytest -q
    - `GITHUB_APP_PRIVATE_KEY` (PEM; newlines as `\n` in env)
    - `GITHUB_WEBHOOK_SECRET`
 
-When a PR is opened or updated, AuditTrail queues a scan, runs scanners, posts inline comments (up to 50 findings), and creates a check run named **AuditTrail Security Scan**.
+When a PR is opened or updated, AuditTrail queues a scan, runs scanners on the PR head checkout, **filters findings to files/lines changed in the PR diff**, posts inline comments (up to 50 findings), and creates a check run named **AuditTrail Security Scan**.
+
+On-demand REST scans (`/v1/scans`, `/v1/scans/upload`) still report **full-repo** results (no diff filter).
 
 ### Self-review (dogfooding this repo)
 
@@ -142,7 +152,7 @@ After deploying AuditTrail and installing the GitHub App on this repository:
 
 1. Open a PR from a feature branch (e.g. `feat/*`) into `main`.
 2. Include changes under `fixtures/vulnerable-sample/` or application code to trigger findings.
-3. The webhook hits `/webhooks/github`; the worker clones the PR head and scans changed context.
+3. The webhook hits `/webhooks/github`; the worker clones the PR head, loads the PR file list from GitHub, and reports only findings in the diff.
 4. Verify the check run and review comments on the PR.
 
 For local webhook testing, use [smee.io](https://smee.io/) or `ngrok` to forward to `http://localhost:8000/webhooks/github`.
@@ -156,9 +166,7 @@ For local webhook testing, use [smee.io](https://smee.io/) or `ngrok` to forward
 | `POST` | `/v1/scans` | API key | Queue scan of public Git URL |
 | `POST` | `/v1/scans/upload` | API key | Queue scan of `.zip` / `.tar.gz` archive |
 | `GET` | `/v1/scans/{id}` | API key | Scan status, findings, report |
-| `POST` | `/v1/admin/api-keys` | None* | Issue API key |
-
-\*Protect or remove in production deployments.
+| `POST` | `/v1/admin/api-keys` | Bootstrap admin token | Issue API key |
 
 OpenAPI schema: `/openapi.json` and interactive UI at `/docs`.
 
@@ -199,7 +207,6 @@ Dockerfile.*         API, worker, and scanner images
 
 ## Roadmap
 
-- [ ] Diff-scoped scanning (only changed files on PRs)
 - [ ] SARIF export and GitHub Advanced Security integration
 - [ ] Policy engine (severity gates per repo/team)
 - [ ] Multi-tenant organizations and audit log

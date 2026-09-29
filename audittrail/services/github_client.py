@@ -64,6 +64,25 @@ def create_check_run(
     return cast(dict[str, Any], resp.json())
 
 
+def list_pull_request_files(
+    repo_full_name: str,
+    pr_number: int,
+    installation_id: int,
+) -> list[dict[str, Any]]:
+    token = _installation_token(installation_id)
+    url = f"{get_settings().github_api_base}/repos/{repo_full_name}/pulls/{pr_number}/files"
+    resp = httpx.get(
+        url,
+        headers={
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        },
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    return cast(list[dict[str, Any]], resp.json())
+
+
 def post_review_comments(
     repo_full_name: str,
     pr_number: int,

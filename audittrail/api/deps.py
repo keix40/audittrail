@@ -4,6 +4,7 @@ from typing import Annotated
 
 from audittrail.db.session import get_db
 from audittrail.models.api_key import ApiKey
+from audittrail.services.admin_auth import AdminAuthError, verify_bootstrap_admin_token
 from audittrail.services.api_keys import verify_api_key
 from audittrail.services.rate_limit import RateLimiter, RateLimitExceeded
 from fastapi import Depends, Header, HTTPException, Request
@@ -28,6 +29,19 @@ def require_api_key(
     if not record:
         raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return record
+
+
+def require_bootstrap_admin(
+    x_admin_token: Annotated[str | None, Header()] = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> None:
+    token = x_admin_token
+    if not token and authorization and authorization.lower().startswith("bearer "):
+        token = authorization[7:].strip()
+    try:
+        verify_bootstrap_admin_token(token)
+    except AdminAuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
 
 
 def rate_limit_api_key(
