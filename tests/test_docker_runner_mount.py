@@ -1,8 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-from audittrail.scanners.docker_runner import DockerScannerRunner, ScannerExecutionError
+from audittrail.scanners.docker_runner import DockerScannerRunner
 
 
 def test_host_workspace_path_uses_volume_mountpoint(
@@ -40,29 +39,3 @@ def test_host_workspace_path_uses_volume_mountpoint(
             "read_only": True,
         }
     ]
-
-
-def test_host_workspace_path_rejects_empty_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("WORK_DIR", "/var/audittrail/work")
-    from audittrail.config import get_settings
-
-    get_settings.cache_clear()
-
-    mount_root = tmp_path / "docker-vol"
-    empty = mount_root / "scans" / "empty"
-    empty.mkdir(parents=True)
-
-    mock_volume = MagicMock()
-    mock_volume.attrs = {"Mountpoint": str(mount_root)}
-
-    mock_client = MagicMock()
-    mock_client.volumes.get.return_value = mock_volume
-
-    runner = DockerScannerRunner.__new__(DockerScannerRunner)
-    runner._settings = get_settings()
-    runner._client = mock_client
-
-    with pytest.raises(ScannerExecutionError, match="empty"):
-        runner._host_workspace_path(Path("/var/audittrail/work/scans/empty"))

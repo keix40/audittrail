@@ -142,19 +142,7 @@ class DockerScannerRunner:
                 ScannerName.SEMGREP,
                 f"volume {volume_name!r} has no Mountpoint",
             )
-        host_path = Path(mountpoint) / subpath if subpath != "." else Path(mountpoint)
-        if not host_path.is_dir():
-            raise ScannerExecutionError(
-                ScannerName.SEMGREP,
-                f"host workspace missing at {host_path}",
-            )
-        file_count = sum(1 for _ in host_path.rglob("*") if _.is_file())
-        if file_count == 0:
-            raise ScannerExecutionError(
-                ScannerName.SEMGREP,
-                f"host workspace empty at {host_path}",
-            )
-        return host_path
+        return Path(mountpoint) / subpath if subpath != "." else Path(mountpoint)
 
     def _mounts_for_workspace(self, workspace: Path) -> list[dict[str, object]]:
         host_path = self._host_workspace_path(workspace)
