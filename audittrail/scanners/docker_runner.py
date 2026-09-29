@@ -18,9 +18,6 @@ from audittrail.services.workspace import validate_workspace_not_empty
 
 logger = logging.getLogger(__name__)
 
-# Scanner containers mount the shared work volume here (full volume, no subpath).
-CONTAINER_WORK_ROOT = "/scan-work"
-
 SCANNER_COMMANDS: dict[ScannerName, list[str]] = {
     ScannerName.SEMGREP: [
         "semgrep",
@@ -128,32 +125,50 @@ class DockerScannerRunner:
                 f"workspace {workspace} must live under {work_root}",
             ) from exc
 
-    def _container_workspace_path(self, workspace: Path) -> str:
+    def _host_workspace_path(self, workspace: Path) -> Path:
+        """Resolve the scan directory on the Docker host (via shared volume mountpoint)."""
         subpath = self._workspace_subpath(workspace)
-        if subpath == ".":
-            return CONTAINER_WORK_ROOT
-        return f"{CONTAINER_WORK_ROOT}/{subpath}"
+        volume_name = self._settings.scanner_work_volume_name
+        try:
+            volume = self._client.volumes.get(volume_name)
+        except docker.errors.NotFound as exc:
+            raise ScannerExecutionError(
+                ScannerName.SEMGREP,
+                f"scanner work volume {volume_name!r} not found",
+            ) from exc
+        mountpoint = volume.attrs.get("Mountpoint")
+        if not mountpoint:
+            raise ScannerExecutionError(
+                ScannerName.SEMGREP,
+                f"volume {volume_name!r} has no Mountpoint",
+            )
+        host_path = Path(mountpoint) / subpath if subpath != "." else Path(mountpoint)
+        if not host_path.is_dir():
+            raise ScannerExecutionError(
+                ScannerName.SEMGREP,
+                f"host workspace missing at {host_path}",
+            )
+        file_count = sum(1 for _ in host_path.rglob("*") if _.is_file())
+        if file_count == 0:
+            raise ScannerExecutionError(
+                ScannerName.SEMGREP,
+                f"host workspace empty at {host_path}",
+            )
+        return host_path
 
     def _mounts_for_workspace(self, workspace: Path) -> list[dict[str, object]]:
-        del workspace
-        volume_name = self._settings.scanner_work_volume_name
+        host_path = self._host_workspace_path(workspace)
         return [
             {
-                "target": CONTAINER_WORK_ROOT,
-                "source": volume_name,
-                "type": "volume",
+                "type": "bind",
+                "source": str(host_path),
+                "target": "/workspace",
                 "read_only": True,
             }
         ]
 
-    def _command_for(self, scanner: ScannerName, container_workspace: str) -> list[str]:
-        return [
-            part.replace("/workspace", container_workspace) for part in SCANNER_COMMANDS[scanner]
-        ]
-
     def _run_one(self, scanner: ScannerName, workspace: Path) -> ScannerRunResult:
-        container_workspace = self._container_workspace_path(workspace)
-        cmd = self._command_for(scanner, container_workspace)
+        cmd = SCANNER_COMMANDS[scanner]
         container: Container | None = None
         try:
             container = self._client.containers.run(
@@ -163,6 +178,7 @@ class DockerScannerRunner:
                 network_disabled=self._settings.scanner_network_disabled,
                 mem_limit=self._settings.scanner_memory_limit,
                 cpu_quota=self._settings.scanner_cpu_quota,
+                environment={"HOME": "/tmp", "XDG_CACHE_HOME": "/tmp"},
                 remove=False,
                 detach=True,
                 read_only=True,

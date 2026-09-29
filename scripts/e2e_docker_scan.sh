@@ -105,16 +105,19 @@ if [[ -z "$detail" ]]; then
   exit 1
 fi
 
+status="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' <<<"$detail")"
+if [[ "$status" != "completed" ]]; then
+  echo "$detail" | python3 -m json.tool >&2 || echo "$detail" >&2
+  echo "Worker logs (last 120 lines):" >&2
+  $COMPOSE logs --no-color worker | tail -120 >&2 || true
+  exit 1
+fi
+
 python3 - "$detail" <<'PY'
 import json
 import sys
 
 data = json.loads(sys.argv[1])
-status = data.get("status")
-if status != "completed":
-    print(json.dumps(data, indent=2))
-    raise SystemExit(f"Expected completed scan, got {status!r}")
-
 report = data.get("report") or {}
 findings = data.get("findings") or []
 scanners = {f.get("scanner") for f in findings}
