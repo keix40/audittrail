@@ -1,0 +1,23 @@
+name: E2E Docker Scan
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  e2e-docker-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run real stack scan E2E
+        env:
+          API_BASE: http://127.0.0.1:8000
+          COMPOSE: docker compose -f docker-compose.yml -f docker-compose.e2e.yml
+        run: bash scripts/e2e_docker_scan.sh
+
+      - name: Capture compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.yml -f docker-compose.e2e.yml logs --no-color api worker migrate | tail -400

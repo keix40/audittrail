@@ -23,7 +23,10 @@ class FileDiff:
 
 
 def normalize_repo_path(path: str) -> str:
-    return path.replace("\\", "/").lstrip("./")
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
 
 
 def _merge_ranges(ranges: list[LineRange]) -> tuple[LineRange, ...]:

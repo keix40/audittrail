@@ -55,6 +55,13 @@ def test_whole_file_when_patch_missing() -> None:
     assert finding_in_diff(finding, scope) is True
 
 
+def test_normalize_repo_path_preserves_dotfiles() -> None:
+    from audittrail.services.diff_scope import normalize_repo_path
+
+    assert normalize_repo_path("./.env") == ".env"
+    assert normalize_repo_path(".github/workflows/ci.yml") == ".github/workflows/ci.yml"
+
+
 def test_filter_findings_to_diff() -> None:
     scope = (FileDiff(filename="app.py", line_ranges=(LineRange(9, 10),)),)
     findings = [

@@ -44,7 +44,10 @@ async def github_webhook(
         pr_number=ctx["pr_number"],
         installation_id=ctx["installation_id"],
         commit_sha=ctx["head_sha"],
-        metadata_json={"action": ctx["action"]},
+        metadata_json={
+            "action": ctx["action"],
+            "head_repo_full_name": ctx["head_repo_full_name"],
+        },
     )
     db.add(scan)
     db.commit()

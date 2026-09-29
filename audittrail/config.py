@@ -36,7 +36,9 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str = ""
 
-    work_dir: str = "/tmp/audittrail/work"
+    work_dir: str = "/var/audittrail/work"
+    scanner_work_volume_name: str = "audittrail_scanwork"
+    environment: str = "development"
 
 
 @lru_cache

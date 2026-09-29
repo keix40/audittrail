@@ -6,10 +6,12 @@ from fastapi import FastAPI
 from audittrail import __version__
 from audittrail.api.routes import admin, health, scans, webhooks
 from audittrail.config import get_settings
+from audittrail.services.startup_validation import validate_production_secrets
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    validate_production_secrets(get_settings())
     yield
 
 

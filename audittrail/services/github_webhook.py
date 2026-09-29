@@ -30,6 +30,7 @@ def extract_pr_context(payload: dict[str, Any]) -> dict[str, Any]:
         "repo_full_name": repo.get("full_name"),
         "pr_number": pr.get("number"),
         "head_sha": (pr.get("head") or {}).get("sha"),
+        "head_repo_full_name": ((pr.get("head") or {}).get("repo") or {}).get("full_name"),
         "base_ref": (pr.get("base") or {}).get("ref"),
         "installation_id": installation.get("id"),
         "changed_files": pr.get("changed_files"),

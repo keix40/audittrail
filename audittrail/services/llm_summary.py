@@ -75,6 +75,26 @@ def generate_summary(findings: list[NormalizedFinding]) -> tuple[str, bool]:
             resp.raise_for_status()
             text = resp.json()["choices"][0]["message"]["content"]
             return text.strip(), True
+        if settings.llm_provider == "anthropic":
+            model = settings.llm_model or "claude-3-5-haiku-20241022"
+            resp = httpx.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": settings.llm_api_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json",
+                },
+                json={
+                    "model": model,
+                    "max_tokens": 500,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            content = resp.json()["content"]
+            text = content[0]["text"]
+            return str(text).strip(), True
     except Exception:
         pass
 
