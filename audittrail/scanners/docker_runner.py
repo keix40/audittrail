@@ -18,6 +18,9 @@ from audittrail.services.workspace import validate_workspace_not_empty
 
 logger = logging.getLogger(__name__)
 
+# Scanner containers mount the shared work volume here (full volume, no subpath).
+CONTAINER_WORK_ROOT = "/scan-work"
+
 SCANNER_COMMANDS: dict[ScannerName, list[str]] = {
     ScannerName.SEMGREP: [
         "semgrep",
@@ -125,21 +128,32 @@ class DockerScannerRunner:
                 f"workspace {workspace} must live under {work_root}",
             ) from exc
 
-    def _mounts_for_workspace(self, workspace: Path) -> list[dict[str, object]]:
+    def _container_workspace_path(self, workspace: Path) -> str:
         subpath = self._workspace_subpath(workspace)
+        if subpath == ".":
+            return CONTAINER_WORK_ROOT
+        return f"{CONTAINER_WORK_ROOT}/{subpath}"
+
+    def _mounts_for_workspace(self, workspace: Path) -> list[dict[str, object]]:
+        del workspace
         volume_name = self._settings.scanner_work_volume_name
-        mount: dict[str, object] = {
-            "target": "/workspace",
-            "source": volume_name,
-            "type": "volume",
-            "read_only": True,
-        }
-        if subpath and subpath != ".":
-            mount["volume_options"] = {"subpath": subpath}
-        return [mount]
+        return [
+            {
+                "target": CONTAINER_WORK_ROOT,
+                "source": volume_name,
+                "type": "volume",
+                "read_only": True,
+            }
+        ]
+
+    def _command_for(self, scanner: ScannerName, container_workspace: str) -> list[str]:
+        return [
+            part.replace("/workspace", container_workspace) for part in SCANNER_COMMANDS[scanner]
+        ]
 
     def _run_one(self, scanner: ScannerName, workspace: Path) -> ScannerRunResult:
-        cmd = SCANNER_COMMANDS[scanner]
+        container_workspace = self._container_workspace_path(workspace)
+        cmd = self._command_for(scanner, container_workspace)
         container: Container | None = None
         try:
             container = self._client.containers.run(

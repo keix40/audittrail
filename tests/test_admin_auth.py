@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 @pytest.fixture
 def admin_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DEBUG", "true")
+    monkeypatch.setenv("API_KEY_PEPPER", "test-pepper")
     monkeypatch.setenv("BOOTSTRAP_ADMIN_TOKEN", "test-bootstrap-admin-token")
     get_settings.cache_clear()
     yield

@@ -1,0 +1,6 @@
+# E2E / CI: avoid binding Postgres/Redis to host ports (prevents clashes with local services).
+services:
+  postgres:
+    ports: !reset []
+  redis:
+    ports: !reset []
