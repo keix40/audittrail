@@ -56,9 +56,29 @@ def _scrubbed_env() -> dict[str, str]:
     return base
 
 
+# Caps for scanner subprocesses (Render single-container / SCANNER_RUNNER=subprocess).
+# Semgrep raises RLIMIT_STACK to ~1 GiB per thread; without a stack cap, virtual memory
+# under RLIMIT_AS triggers SIGSEGV (semgrep-core exit -11) when AS is capped at 768 MiB.
+_SCANNER_RLIMIT_AS_BYTES = 768 * 1024 * 1024
+# Match `ulimit -Hs 16384`: cap hard stack at 16 MiB while leaving soft at 8 MiB so
+# semgrep cannot grow per-thread stacks toward ~1 GiB under RLIMIT_AS.
+_SCANNER_RLIMIT_STACK_SOFT_BYTES = 8 * 1024 * 1024
+_SCANNER_RLIMIT_STACK_HARD_BYTES = 16 * 1024 * 1024
+
+
 def _apply_rlimits() -> None:
     try:
-        resource.setrlimit(resource.RLIMIT_AS, (768 * 1024 * 1024, 768 * 1024 * 1024))
+        resource.setrlimit(
+            resource.RLIMIT_AS,
+            (_SCANNER_RLIMIT_AS_BYTES, _SCANNER_RLIMIT_AS_BYTES),
+        )
+        resource.setrlimit(
+            resource.RLIMIT_STACK,
+            (
+                _SCANNER_RLIMIT_STACK_SOFT_BYTES,
+                _SCANNER_RLIMIT_STACK_HARD_BYTES,
+            ),
+        )
         resource.setrlimit(resource.RLIMIT_CPU, (600, 600))
         resource.setrlimit(resource.RLIMIT_NOFILE, (256, 256))
     except (ValueError, OSError):
