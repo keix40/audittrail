@@ -22,9 +22,10 @@ SCANNER_COMMANDS: dict[ScannerName, list[str]] = {
     ScannerName.SEMGREP: [
         "semgrep",
         "scan",
-        "--config=p/python",
+        "--config=/opt/audittrail-semgrep",
         "--json",
         "--error",
+        "--metrics=off",
         "/workspace",
     ],
     ScannerName.BANDIT: [

@@ -1,0 +1,12 @@
+rules:
+  - id: audittrail.python-eval
+    languages: [python]
+    message: Detected use of eval
+    severity: ERROR
+    pattern: eval(...)
+
+  - id: audittrail.python-pickle
+    languages: [python]
+    message: Unsafe pickle usage
+    severity: ERROR
+    pattern: pickle.loads(...)

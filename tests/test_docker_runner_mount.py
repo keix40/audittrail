@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock
 
+import pytest
 from audittrail.scanners.docker_runner import DockerScannerRunner
 
 
