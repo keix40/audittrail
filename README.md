@@ -205,6 +205,28 @@ docker-compose.yml   API, worker, Postgres, Redis
 Dockerfile.*         API, worker, and scanner images
 ```
 
+## Deploy on Render (single free web service)
+
+AuditTrail can run as **one** Render free web service (512 MB, Singapore region) with no Redis, no Celery worker, and no Docker socket. Scans run **inline** in the API process and invoke **local subprocess** scanners (Semgrep with bundled rules, Bandit, Gitleaks). Trivy is optional and off by default in this profile.
+
+1. Create a [Neon](https://neon.tech) Postgres database and set `DATABASE_URL` with `sslmode=require`, for example:
+   `postgresql+psycopg://user:pass@host/db?sslmode=require`
+2. Connect this repository to Render and use the included [`render.yaml`](render.yaml) blueprint, or create a **Web Service** with `Dockerfile.render`.
+3. Set secrets: `API_KEY_PEPPER`, `BOOTSTRAP_ADMIN_TOKEN`, and GitHub App variables if using PR webhooks.
+4. Recommended env for the free tier (also defaults in `Dockerfile.render` / `render.yaml`):
+
+| Variable | Value |
+|----------|--------|
+| `SCAN_EXECUTION_MODE` | `inline` |
+| `SCANNER_RUNNER` | `subprocess` |
+| `SCANNER_ENABLE_TRIVY` | `false` |
+| `REDIS_URL` | *(empty — in-memory rate limits)* |
+| `ENVIRONMENT` | `production` |
+
+The service binds `0.0.0.0:$PORT` and sleeps after 15 minutes of idle time on the free plan. On startup, scans stuck in `pending` or `running` are **requeued** in inline mode.
+
+**Local default unchanged:** `docker compose up` still uses Celery, Redis, Postgres, and Docker-isolated scanners. Opt in to inline/subprocess modes via env vars only.
+
 ## Roadmap
 
 - [ ] SARIF export and GitHub Advanced Security integration

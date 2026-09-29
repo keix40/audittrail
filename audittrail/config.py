@@ -1,4 +1,5 @@
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -12,7 +13,14 @@ class Settings(BaseSettings):
     api_port: int = 8000
 
     database_url: str = "postgresql+psycopg://audittrail:audittrail@localhost:5432/audittrail"
-    redis_url: str = "redis://localhost:6379/0"
+    redis_url: str = "redis://localhost:6379/0"  # empty string → in-memory rate limiting
+
+    scan_execution_mode: Literal["celery", "inline"] = "celery"
+    scanner_runner: Literal["docker", "subprocess"] = "docker"
+    scanner_enable_trivy: bool = True
+    inline_scan_max_workers: int = 1
+    inline_scan_max_pending: int = 2
+    semgrep_config_path: str = "/opt/audittrail-semgrep"
     celery_broker_url: str = "redis://localhost:6379/0"
     celery_result_backend: str = "redis://localhost:6379/1"
 

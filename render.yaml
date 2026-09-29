@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: audittrail
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile.render
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: API_KEY_PEPPER
+        generateValue: true
+      - key: BOOTSTRAP_ADMIN_TOKEN
+        generateValue: true
+      - key: SCAN_EXECUTION_MODE
+        value: inline
+      - key: SCANNER_RUNNER
+        value: subprocess
+      - key: SCANNER_ENABLE_TRIVY
+        value: "false"
+      - key: ENVIRONMENT
+        value: production
+      - key: REDIS_URL
+        value: ""
+      - key: GITHUB_APP_ID
+        sync: false
+      - key: GITHUB_APP_PRIVATE_KEY
+        sync: false
+      - key: GITHUB_WEBHOOK_SECRET
+        sync: false

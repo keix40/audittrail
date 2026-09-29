@@ -13,10 +13,11 @@ from audittrail.schemas.scan import (
     ScanStatusOut,
 )
 from audittrail.services.archive_extract import UnsafeArchiveError, extract_upload
+from audittrail.services.inline_executor import ScanQueueFullError
 from audittrail.services.pipeline import parse_github_repo_url
 from audittrail.services.repo_url_validation import InvalidRepoUrlError, validate_repo_url
+from audittrail.services.scan_dispatch import dispatch_scan
 from audittrail.services.workspace import allocate_scan_workspace
-from audittrail.tasks.scan_tasks import run_scan_task
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 router = APIRouter(prefix="/v1/scans", tags=["scans"])
@@ -44,7 +45,10 @@ def create_repo_scan(
     db.commit()
     db.refresh(scan)
     allocate_scan_workspace(scan.id)
-    run_scan_task.delay(str(scan.id), repo_url=str(body.repo_url), ref=body.ref)
+    try:
+        dispatch_scan(str(scan.id), repo_url=str(body.repo_url), ref=body.ref)
+    except ScanQueueFullError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ScanCreated(scan_id=scan.id, status=ScanStatusOut.pending)
 
 
@@ -79,7 +83,10 @@ async def create_archive_scan(
     except UnsafeArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    run_scan_task.delay(str(scan.id))
+    try:
+        dispatch_scan(str(scan.id))
+    except ScanQueueFullError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ScanCreated(scan_id=scan.id, status=ScanStatusOut.pending)
 
 

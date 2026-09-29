@@ -8,16 +8,25 @@ from audittrail.services.github_webhook import (
     extract_pr_context,
     verify_github_signature,
 )
-from audittrail.tasks.scan_tasks import run_scan_task
-from fastapi import APIRouter, Header, HTTPException, Request
+from audittrail.services.inline_executor import ScanQueueFullError
+from audittrail.services.scan_dispatch import dispatch_scan, mark_scan_queue_rejected
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Request
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-@router.post("/github")
+def _enqueue_github_scan(scan_id: str) -> None:
+    try:
+        dispatch_scan(scan_id, post_github=True)
+    except ScanQueueFullError:
+        mark_scan_queue_rejected(scan_id, "Inline scan queue full; try again later")
+
+
+@router.post("/github", status_code=202)
 async def github_webhook(
     request: Request,
     db: DbSession,
+    background_tasks: BackgroundTasks,
     x_hub_signature_256: str | None = Header(default=None),
     x_github_event: str | None = Header(default=None),
 ) -> dict[str, str]:
@@ -52,5 +61,5 @@ async def github_webhook(
     db.add(scan)
     db.commit()
     db.refresh(scan)
-    run_scan_task.delay(str(scan.id), post_github=True)
+    background_tasks.add_task(_enqueue_github_scan, str(scan.id))
     return {"status": "queued", "scan_id": str(scan.id)}
