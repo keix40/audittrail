@@ -1,7 +1,13 @@
 from unittest.mock import MagicMock
 
 import pytest
-from audittrail.services.rate_limit import RateLimiter, RateLimitExceeded
+from audittrail.services.rate_limit import RateLimiter, RateLimitExceeded, get_redis_client
+
+
+def test_shared_redis_pool_reused() -> None:
+    first = get_redis_client()
+    second = get_redis_client()
+    assert first.connection_pool is second.connection_pool
 
 
 def test_rate_limit_allows_under_limit(monkeypatch: pytest.MonkeyPatch) -> None:

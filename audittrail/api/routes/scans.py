@@ -1,8 +1,5 @@
 import json
-import shutil
-import tempfile
 import uuid
-from pathlib import Path
 
 from audittrail.api.deps import DbSession, rate_limit_api_key
 from audittrail.models.api_key import ApiKey
@@ -15,7 +12,10 @@ from audittrail.schemas.scan import (
     ScanDetail,
     ScanStatusOut,
 )
+from audittrail.services.archive_extract import UnsafeArchiveError, extract_upload
 from audittrail.services.pipeline import parse_github_repo_url
+from audittrail.services.repo_url_validation import InvalidRepoUrlError, validate_repo_url
+from audittrail.services.workspace import allocate_scan_workspace
 from audittrail.tasks.scan_tasks import run_scan_task
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
@@ -26,18 +26,24 @@ router = APIRouter(prefix="/v1/scans", tags=["scans"])
 def create_repo_scan(
     body: RepoScanRequest,
     db: DbSession,
-    _: ApiKey = Depends(rate_limit_api_key),
+    api_key: ApiKey = Depends(rate_limit_api_key),
 ) -> ScanCreated:
+    try:
+        validate_repo_url(str(body.repo_url))
+    except InvalidRepoUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     repo_path = parse_github_repo_url(str(body.repo_url))
     scan = Scan(
         source=ScanSource.REPO_URL,
         status=ScanStatus.PENDING,
         repo_full_name=repo_path,
         ref=body.ref,
+        owner_api_key_id=api_key.id,
     )
     db.add(scan)
     db.commit()
     db.refresh(scan)
+    allocate_scan_workspace(scan.id)
     run_scan_task.delay(str(scan.id), repo_url=str(body.repo_url), ref=body.ref)
     return ScanCreated(scan_id=scan.id, status=ScanStatusOut.pending)
 
@@ -45,33 +51,35 @@ def create_repo_scan(
 @router.post("/upload", response_model=ScanCreated, status_code=202)
 async def create_archive_scan(
     db: DbSession,
-    _: ApiKey = Depends(rate_limit_api_key),
+    api_key: ApiKey = Depends(rate_limit_api_key),
     archive: UploadFile = File(...),
 ) -> ScanCreated:
-    if not archive.filename or not archive.filename.endswith((".zip", ".tar.gz", ".tgz")):
+    if not archive.filename:
+        raise HTTPException(status_code=400, detail="Missing filename")
+    lower = archive.filename.lower()
+    if not lower.endswith((".zip", ".tar.gz", ".tgz")):
         raise HTTPException(status_code=400, detail="Upload must be .zip or .tar.gz")
+    if ".." in archive.filename or archive.filename.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid filename")
 
-    work = Path(tempfile.mkdtemp(prefix="upload-"))
-    dest = work / "src"
-    dest.mkdir()
-    raw_path = work / archive.filename
     content = await archive.read()
-    raw_path.write_bytes(content)
-
-    if archive.filename.endswith(".zip"):
-        shutil.unpack_archive(str(raw_path), str(dest), format="zip")
-    else:
-        shutil.unpack_archive(str(raw_path), str(dest))
-
     scan = Scan(
         source=ScanSource.ARCHIVE_UPLOAD,
         status=ScanStatus.PENDING,
         metadata_json={"filename": archive.filename},
+        owner_api_key_id=api_key.id,
     )
     db.add(scan)
     db.commit()
     db.refresh(scan)
-    run_scan_task.delay(str(scan.id), workspace_path=str(dest))
+
+    workspace = allocate_scan_workspace(scan.id)
+    try:
+        extract_upload(archive.filename, content, workspace)
+    except UnsafeArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    run_scan_task.delay(str(scan.id))
     return ScanCreated(scan_id=scan.id, status=ScanStatusOut.pending)
 
 
@@ -79,10 +87,10 @@ async def create_archive_scan(
 def get_scan(
     scan_id: uuid.UUID,
     db: DbSession,
-    _: ApiKey = Depends(rate_limit_api_key),
+    api_key: ApiKey = Depends(rate_limit_api_key),
 ) -> ScanDetail:
     scan = db.get(Scan, scan_id)
-    if not scan:
+    if not scan or scan.owner_api_key_id != api_key.id:
         raise HTTPException(status_code=404, detail="Scan not found")
 
     report_out = None

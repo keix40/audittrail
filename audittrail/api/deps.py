@@ -13,8 +13,14 @@ from sqlalchemy.orm import Session
 DbSession = Annotated[Session, Depends(get_db)]
 
 
+_limiter: RateLimiter | None = None
+
+
 def get_rate_limiter() -> RateLimiter:
-    return RateLimiter()
+    global _limiter
+    if _limiter is None:
+        _limiter = RateLimiter()
+    return _limiter
 
 
 def require_api_key(

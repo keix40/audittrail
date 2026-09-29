@@ -13,9 +13,10 @@ from audittrail.services.diff_scope import file_diffs_from_github_files
 from audittrail.services.github_client import list_pull_request_files
 from audittrail.services.pipeline import (
     fetch_pr_workspace,
+    prepare_repo_scan_workspace,
     run_scan_pipeline,
-    workspace_from_repo_url,
 )
+from audittrail.services.workspace import scan_workspace_path
 
 
 @celery_app.task(name="audittrail.run_scan", bind=True, max_retries=2)  # type: ignore[untyped-decorator]
@@ -23,7 +24,6 @@ def run_scan_task(
     _self: Task,
     scan_id: str,
     *,
-    workspace_path: str | None = None,
     repo_url: str | None = None,
     ref: str = "main",
     post_github: bool = False,
@@ -31,24 +31,32 @@ def run_scan_task(
     db = SessionLocal()
     try:
         sid = uuid.UUID(scan_id)
-        workspace: Path
-        if workspace_path:
-            workspace = Path(workspace_path)
-        elif repo_url:
-            workspace = workspace_from_repo_url(repo_url, ref)
-        else:
-            scan = db.get(Scan, sid)
-            if scan and scan.repo_full_name:
-                workspace = Path(f"/tmp/pr-{scan_id}")
-                fetch_pr_workspace(scan.repo_full_name, scan.ref, workspace)
-            else:
-                raise ValueError("No workspace or repo context for scan")
-
         scan = db.get(Scan, sid)
+        if scan is None:
+            raise ValueError(f"Scan {scan_id} not found")
+
+        workspace: Path = scan_workspace_path(sid)
+        if scan.source == ScanSource.REPO_URL and repo_url:
+            workspace = prepare_repo_scan_workspace(sid, repo_url, ref)
+        elif scan.source == ScanSource.GITHUB_PR:
+            if not scan.commit_sha or not scan.installation_id:
+                raise ValueError("GitHub PR scan missing commit or installation")
+            head_repo = scan.metadata_json.get("head_repo_full_name") or scan.repo_full_name
+            if not head_repo:
+                raise ValueError("GitHub PR scan missing head repository")
+            workspace.mkdir(parents=True, exist_ok=True)
+            fetch_pr_workspace(
+                str(head_repo),
+                scan.commit_sha,
+                scan.installation_id,
+                workspace,
+            )
+        elif not workspace.exists():
+            raise ValueError(f"Workspace not prepared for scan {scan_id}")
+
         diff_scope = None
         if (
-            scan
-            and scan.source == ScanSource.GITHUB_PR
+            scan.source == ScanSource.GITHUB_PR
             and scan.pr_number
             and scan.installation_id
             and scan.repo_full_name
