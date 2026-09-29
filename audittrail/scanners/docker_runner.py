@@ -7,61 +7,20 @@ import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
-
-import docker
-from docker.models.containers import Container
+from typing import TYPE_CHECKING, Protocol
 
 from audittrail.config import get_settings
+from audittrail.scanners.scanner_commands import (
+    docker_scanner_commands,
+    enabled_scanners,
+)
 from audittrail.schemas.finding import ScannerName
 from audittrail.services.workspace import validate_workspace_not_empty
 
+if TYPE_CHECKING:
+    from docker.models.containers import Container
+
 logger = logging.getLogger(__name__)
-
-SCANNER_COMMANDS: dict[ScannerName, list[str]] = {
-    ScannerName.SEMGREP: [
-        "semgrep",
-        "scan",
-        "--config=/opt/audittrail-semgrep",
-        "--json",
-        "--error",
-        "--metrics=off",
-        "/workspace",
-    ],
-    ScannerName.BANDIT: [
-        "bandit",
-        "-r",
-        "/workspace",
-        "-f",
-        "json",
-        "-q",
-    ],
-    ScannerName.GITLEAKS: [
-        "gitleaks",
-        "detect",
-        "--source=/workspace",
-        "--report-format=json",
-        "--report-path=/dev/stdout",
-        "--no-git",
-    ],
-    ScannerName.TRIVY: [
-        "trivy",
-        "fs",
-        "--scanners=vuln",
-        "--format=json",
-        "--skip-db-update",
-        "--cache-dir=/trivy-cache",
-        "/workspace",
-    ],
-}
-
-# Exit codes that indicate findings (not tool failure).
-FINDING_EXIT_CODES: dict[ScannerName, frozenset[int]] = {
-    ScannerName.SEMGREP: frozenset({0, 1}),
-    ScannerName.BANDIT: frozenset({0, 1}),
-    ScannerName.GITLEAKS: frozenset({0, 1}),
-    ScannerName.TRIVY: frozenset({0}),
-}
 
 
 @dataclass(frozen=True)
@@ -99,6 +58,8 @@ def _parse_json_payload(scanner: ScannerName, stdout: str) -> None:
 
 
 def validate_scanner_result(scanner: ScannerName, result: ScannerRunResult) -> None:
+    from audittrail.scanners.scanner_commands import FINDING_EXIT_CODES
+
     allowed = FINDING_EXIT_CODES[scanner]
     if result.exit_code not in allowed:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
@@ -112,6 +73,9 @@ def validate_scanner_result(scanner: ScannerName, result: ScannerRunResult) -> N
 
 class DockerScannerRunner:
     def __init__(self) -> None:
+        import docker
+
+        self._docker = docker
         self._settings = get_settings()
         self._client = docker.from_env()
 
@@ -132,7 +96,7 @@ class DockerScannerRunner:
         volume_name = self._settings.scanner_work_volume_name
         try:
             volume = self._client.volumes.get(volume_name)
-        except docker.errors.NotFound as exc:
+        except self._docker.errors.NotFound as exc:
             raise ScannerExecutionError(
                 ScannerName.SEMGREP,
                 f"scanner work volume {volume_name!r} not found",
@@ -156,8 +120,7 @@ class DockerScannerRunner:
             }
         ]
 
-    def _run_one(self, scanner: ScannerName, workspace: Path) -> ScannerRunResult:
-        cmd = SCANNER_COMMANDS[scanner]
+    def _run_one(self, scanner: ScannerName, workspace: Path, cmd: list[str]) -> ScannerRunResult:
         container: Container | None = None
         try:
             container = self._client.containers.run(
@@ -199,10 +162,13 @@ class DockerScannerRunner:
 
     def run_all(self, workspace: Path) -> dict[ScannerName, ScannerRunResult]:
         validate_workspace_not_empty(workspace)
+        commands = docker_scanner_commands(self._settings)
+        scanners = enabled_scanners(self._settings)
         results: dict[ScannerName, ScannerRunResult] = {}
-        with ThreadPoolExecutor(max_workers=len(ScannerName)) as pool:
+        with ThreadPoolExecutor(max_workers=len(scanners)) as pool:
             futures = {
-                pool.submit(self._run_one, scanner, workspace): scanner for scanner in ScannerName
+                pool.submit(self._run_one, scanner, workspace, commands[scanner]): scanner
+                for scanner in scanners
             }
             for future in as_completed(futures):
                 scanner = futures[future]
@@ -229,7 +195,7 @@ class MockScannerRunner:
     def run_all(self, workspace: Path) -> dict[ScannerName, ScannerRunResult]:
         validate_workspace_not_empty(workspace)
         out: dict[ScannerName, ScannerRunResult] = {}
-        for scanner in ScannerName:
+        for scanner in enabled_scanners():
             if self._fail_scanner == scanner:
                 out[scanner] = ScannerRunResult(
                     stdout="",

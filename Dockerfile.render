@@ -1,0 +1,36 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Semgrep + Bandit
+RUN pip install --no-cache-dir semgrep bandit
+
+# Gitleaks
+ARG GITLEAKS_VERSION=8.21.2
+RUN curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+    | tar -xz -C /usr/local/bin gitleaks
+
+COPY pyproject.toml README.md ./
+COPY audittrail ./audittrail
+COPY alembic ./alembic
+COPY alembic.ini ./
+COPY scanner/semgrep /opt/audittrail-semgrep
+
+RUN pip install --no-cache-dir -e .
+
+ENV PYTHONUNBUFFERED=1 \
+    SCAN_EXECUTION_MODE=inline \
+    SCANNER_RUNNER=subprocess \
+    SCANNER_ENABLE_TRIVY=false \
+    SEMGREP_CONFIG_PATH=/opt/audittrail-semgrep \
+    WORK_DIR=/var/audittrail/work
+
+RUN mkdir -p /var/audittrail/work
+
+EXPOSE 8000
+
+CMD ["sh", "-c", "alembic upgrade head && uvicorn audittrail.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
