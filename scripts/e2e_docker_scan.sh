@@ -73,10 +73,14 @@ fi
 echo "Packaging vulnerable sample..."
 sample_zip="/tmp/vulnerable-sample-$$.zip"
 rm -f "$sample_zip"
+leak_file="/tmp/e2e-leak-$$.py"
+echo 'API_TOKEN="ghp_abcdefghijklmnopqrstuvwxyz1234567890AB"' > "$leak_file"
 (
   cd "$ROOT/fixtures"
   zip -qr "$sample_zip" vulnerable-sample
 )
+zip -qj "$sample_zip" "$leak_file"
+rm -f "$leak_file"
 
 echo "Submitting archive upload scan..."
 create_resp="$(curl -sf -X POST "${API_BASE}/v1/scans/upload" \
